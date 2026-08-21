@@ -18,9 +18,10 @@ LAT, LON = 19.2200, 100.0500  # พิกัดสนามกีฬาจัง
 # FUNCTIONS: FETCH EXTERNAL FEATURES
 # ==========================================
 def fetch_weather(start_date, end_date):
-    """ดึงข้อมูลสภาพอากาศย้อนหลังจาก Open-Meteo API"""
-    print("กำลังดึงข้อมูลสภาพอากาศจาก Open-Meteo...")
-    url = "https://api.open-meteo.com/v1/forecast"
+    """ดึงข้อมูลสภาพอากาศย้อนหลังจาก Open-Meteo Historical API"""
+    print("กำลังดึงข้อมูลสภาพอากาศย้อนหลังจาก Open-Meteo...")
+    # ใช้ historical-weather-api สำหรับข้อมูลย้อนหลัง
+    url = "https://archive-api.open-meteo.com/v1/archive"
     params = {
         "latitude": LAT,
         "longitude": LON,
@@ -37,53 +38,57 @@ def fetch_weather(start_date, end_date):
     }
     try:
         res = requests.get(url, params=params).json()
-        hourly = res["hourly"]
-
-        df = pd.DataFrame(
-            {
-                "datetime": pd.to_datetime(hourly["time"]),
-                "temp": hourly["temperature_2m"],
-                "humidity": hourly["relative_humidity_2m"],
-                "rain": hourly["rain"],
-                "wind_speed": hourly["wind_speed_10m"],
-                "wind_dir": hourly["wind_direction_10m"],
-            }
-        )
-
-        df_daily = (
-            df.resample("D", on="datetime")
-            .agg(
+        if "hourly" in res:
+            hourly = res["hourly"]
+            df = pd.DataFrame(
                 {
-                    "temp": "mean",
-                    "humidity": "mean",
-                    "rain": "sum",
-                    "wind_speed": "mean",
-                    "wind_dir": "mean",
+                    "datetime": pd.to_datetime(hourly["time"]),
+                    "temp": hourly["temperature_2m"],
+                    "humidity": hourly["relative_humidity_2m"],
+                    "rain": hourly["rain"],
+                    "wind_speed": hourly["wind_speed_10m"],
+                    "wind_dir": hourly["wind_direction_10m"],
                 }
             )
-            .reset_index()
-        )
 
-        wind_rad = np.radians(df_daily["wind_dir"])
-        df_daily["wind_sin"] = np.sin(wind_rad)
-        df_daily["wind_cos"] = np.cos(wind_rad)
-        df_daily.drop(columns=["wind_dir"], inplace=True)
+            df_daily = (
+                df.resample("D", on="datetime")
+                .agg(
+                    {
+                        "temp": "mean",
+                        "humidity": "mean",
+                        "rain": "sum",
+                        "wind_speed": "mean",
+                        "wind_dir": "mean",
+                    }
+                )
+                .reset_index()
+            )
 
-        df_daily.rename(columns={"datetime": "Date"}, inplace=True)
-        return df_daily
+            wind_rad = np.radians(df_daily["wind_dir"])
+            df_daily["wind_sin"] = np.sin(wind_rad)
+            df_daily["wind_cos"] = np.cos(wind_rad)
+            df_daily.drop(columns=["wind_dir"], inplace=True)
+
+            df_daily.rename(columns={"datetime": "Date"}, inplace=True)
+            return df_daily
+        else:
+            print(f"Open-Meteo Response Error: {res}")
     except Exception as e:
         print(f"เกิดข้อผิดพลาดในการดึงข้อมูล Weather: {e}")
-        return pd.DataFrame()
+    return pd.DataFrame()
 
 
 def fetch_hotspots(radius_km=100, days=10):
-    """ดึงข้อมูลจุดความร้อนจาก NASA FIRMS API"""
+    """ดึงข้อมูลจุดความร้อนจาก NASA FIRMS API (สูงสุด 10 วันย้อนหลัง)"""
     print("กำลังดึงข้อมูลจุดความร้อนจาก NASA FIRMS...")
     lat_change = radius_km / 111.0
     lon_change = radius_km / (111.0 * math.cos(math.radians(LAT)))
     bbox = f"{round(LON-lon_change,2)},{round(LAT-lat_change,2)},{round(LON+lon_change,2)},{round(LAT+lat_change,2)}"
 
-    url = f"https://firms.modaps.eosdis.nasa.gov/api/area/csv/{MAP_KEY}/VIIRS_SNPP/{bbox}/{days}"
+    # NASA FIRMS อนุญาตให้ระบุ days ได้ไม่เกิน 10 วัน
+    days_to_fetch = min(days, 10)
+    url = f"https://firms.modaps.eosdis.nasa.gov/api/area/csv/{MAP_KEY}/VIIRS_SNPP/{bbox}/{days_to_fetch}"
     try:
         df = pd.read_csv(url)
         if not df.empty and "acq_date" in df.columns:
@@ -100,7 +105,7 @@ def fetch_hotspots(radius_km=100, days=10):
 # ==========================================
 # MAIN PIPELINE
 # ==========================================
-# 1. โหลดและรวมข้อมูล Excel ทุกปี (ปรับปรุงป้องกัน KeyError)
+# 1. โหลดและรวมข้อมูล Excel ทุกปี
 excel_files = sorted(glob.glob("สนามกีฬาจังหวัดพะเยา ปี *.xlsx"))
 df_list = []
 
@@ -108,8 +113,11 @@ print("กำลังโหลดและรวมข้อมูลจาก�
 for file in excel_files:
     df_temp = pd.read_excel(file, skiprows=3, header=None)
     df_temp = df_temp.dropna(how="all").iloc[:, :2]
-    df_temp.columns = ["Date", "PM2.5"]  # บังคับตั้งชื่อคอลัมน์โดยตรง
+    df_temp.columns = ["Date", "PM2.5"]
     df_list.append(df_temp)
+
+if not df_list:
+    raise ValueError("ไม่พบไฟล์ Excel ในไดเรกทอรี")
 
 df_all = pd.concat(df_list, ignore_index=True)
 df_all["Date"] = pd.to_datetime(df_all["Date"], errors="coerce")
@@ -124,12 +132,21 @@ df_weather = fetch_weather(min_date, max_date)
 df_hotspot = fetch_hotspots(radius_km=100, days=10)
 
 # Merge ข้อมูลรวมกัน
-df_merged = pd.merge(df_all, df_weather, on="Date", how="left")
-df_merged = pd.merge(df_merged, df_hotspot, on="Date", how="left")
+if not df_weather.empty:
+    df_merged = pd.merge(df_all, df_weather, on="Date", how="left")
+else:
+    df_merged = df_all.copy()
+    for col in ["temp", "humidity", "rain", "wind_speed", "wind_sin", "wind_cos"]:
+        df_merged[col] = 0
+
+if not df_hotspot.empty:
+    df_merged = pd.merge(df_merged, df_hotspot, on="Date", how="left")
+else:
+    df_merged["hotspot_count"] = 0
 
 # Clean ข้อมูลที่สูญหาย (Imputation)
 df_merged["hotspot_count"] = df_merged["hotspot_count"].fillna(0)
-df_merged = df_merged.ffill().bfill()
+df_merged = df_merged.ffill().bfill().fillna(0)
 
 feature_cols = ["temp", "humidity", "rain", "wind_speed", "wind_sin", "wind_cos", "hotspot_count"]
 data_y = df_merged["PM2.5"].values
