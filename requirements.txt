@@ -91,3 +91,11 @@ arch
 requests
 openpyxl
 joblib
+xgboost
+scikit-learn
+pandas
+numpy
+joblib
+requests
+openpyxl
+statsmodels
