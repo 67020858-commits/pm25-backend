@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>รายงานผล PM2.5 สนามกีฬาจังหวัดพะเยา (GEE Layer)</title>
+    <title>รายงานผล PM2.5 สนามกีฬาจังหวัดพะเยา</title>
 
     <!-- Leaflet CSS & JS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -74,7 +74,7 @@
         </div>
 
         <section class="card">
-            <h2 class="header-title">📖 แผนที่ความหนาแน่นฝุ่น PM2.5 จากภาพถ่ายดาวเทียม และสถานีเรียลไทม์</h2>
+            <h2 class="header-title">📖 แผนที่ตำแหน่งสถานีเรียลไทม์ และจุดตรวจวัดหลัก</h2>
             <div id="map" style="margin-top: 12px;"></div>
         </section>
 
@@ -114,7 +114,6 @@
     </main>
 
     <script>
-        // อัปเดต API_BASE_URL ให้ชี้ไปยัง Service บน Render ที่สร้างขึ้นใหม่
         const API_BASE_URL = "https://pm25-api.onrender.com";
         const WAQI_TOKEN = '012861731ffb009f24137beadf87089b37fd31bf';
 
@@ -191,22 +190,24 @@
 
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 maxZoom: 18,
-                attribution: '&copy; OpenStreetMap | Data: GEE CAMS PM2.5 & WAQI'
+                attribution: '&copy; OpenStreetMap | Data: WAQI'
             }).addTo(map);
 
+            // ปรับการดึง GEE Tile ป้องกันไม่ให้บล็อกการทำงานกรณีขึ้น 404
             try {
                 const response = await fetch(`${API_BASE_URL}/api/gee-tile`);
-                const data = await response.json();
-
-                if (data.status === 'success' && data.tile_url) {
-                    L.tileLayer(data.tile_url, {
-                        maxZoom: 18,
-                        opacity: 0.45,
-                        attribution: 'Layer Data &copy; Google Earth Engine'
-                    }).addTo(map);
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.status === 'success' && data.tile_url) {
+                        L.tileLayer(data.tile_url, {
+                            maxZoom: 18,
+                            opacity: 0.45,
+                            attribution: 'Layer Data &copy; Google Earth Engine'
+                        }).addTo(map);
+                    }
                 }
             } catch (err) {
-                console.warn("ไม่สามารถดึงเลเยอร์ GEE ได้", err);
+                console.warn("ข้ามการดึงเลเยอร์ GEE:", err);
             }
 
             stationMarker = L.marker([19.2200, 100.0500]).addTo(map)
@@ -279,14 +280,14 @@
             tbody.innerHTML = '';
 
             forecastData.forEach(item => {
-                const diff = (item.actual !== 'N/A') ? Math.abs(item.predicted - item.actual).toFixed(1) : '-';
+                const diff = (item.actual !== 'N/A' && item.actual !== undefined) ? Math.abs(item.predicted - item.actual).toFixed(1) : '-';
                 const badge = getAQIBadge(item.predicted);
 
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td><strong>${item.period}</strong></td>
                     <td>${item.date}</td>
-                    <td>${item.actual !== 'N/A' ? item.actual + ' µg/m³' : 'N/A'}</td>
+                    <td>${(item.actual !== 'N/A' && item.actual !== undefined) ? item.actual + ' µg/m³' : 'N/A'}</td>
                     <td><strong style="color: #2563eb;">${item.predicted} µg/m³</strong></td>
                     <td>${diff}</td>
                     <td><span class="badge ${badge.class}">${badge.text}</span></td>
@@ -296,52 +297,82 @@
         }
 
         async function fetchData() {
-            const dateStr = document.getElementById('dateSelect').value;
-            if (!dateStr) return;
+    const dateStr = document.getElementById('dateSelect').value;
+    if (!dateStr) return;
 
-            const loader = document.getElementById('loadingOverlay');
-            loader.style.display = 'flex';
+    const loader = document.getElementById('loadingOverlay');
+    loader.style.display = 'flex';
 
-            try {
-                updateProgress(40, "กำลังประมวลผลข้อมูล...");
-                const res = await fetch(`${API_BASE_URL}/predict?date=${dateStr}`);
-                if (!res.ok) throw new Error('เกิดข้อผิดพลาดในการดึงข้อมูล');
-                const data = await res.json();
+    try {
+        updateProgress(40, "กำลังประมวลผลข้อมูล...");
+        
+        const targetUrl = `${API_BASE_URL}/predict?date=${dateStr}`;
+        const res = await fetch(targetUrl);
+        if (!res.ok) throw new Error('เกิดข้อผิดพลาดในการดึงข้อมูลจาก Server');
 
-                updateProgress(80, "กำลังสร้างกราฟและสรุปตาราง...");
+        const data = await res.json();
+        updateProgress(80, "กำลังสร้างกราฟและสรุปตาราง...");
 
-                const forecast = data.forecast || [];
-                const predictedValues = forecast.map(f => f.predicted);
-                const todayVal = predictedValues[0] || 0;
+        // ดึงอาร์เรย์ตัวเลข 7 วันจาก Backend
+        const rawValues = data.forecast_7_days || [];
+        
+        // คำนวณค่าเฉลี่ย และค่าสูงสุด
+        const sum = rawValues.reduce((a, b) => a + b, 0);
+        const avgVal = rawValues.length ? (sum / rawValues.length).toFixed(1) : 0;
+        const maxVal = rawValues.length ? Math.max(...rawValues).toFixed(1) : 0;
 
-                document.getElementById('statAvg').innerText = `${data.summary?.average ?? 0} µg/m³`;
-                document.getElementById('statMax').innerText = `${data.summary?.max_val ?? 0} µg/m³`;
-                
-                const riskBadge = document.getElementById('statRisk');
-                const riskInfo = getAQIBadge(data.summary?.max_val ?? 0);
-                riskBadge.innerText = data.summary?.risk_level ?? 'ดีมาก';
-                riskBadge.className = `badge ${riskInfo.class}`;
+        // สรุปการ์ดด้านบน
+        document.getElementById('statAvg').innerText = `${avgVal} µg/m³`;
+        document.getElementById('statMax').innerText = `${maxVal} µg/m³`;
+        
+        const riskBadge = document.getElementById('statRisk');
+        const riskInfo = getAQIBadge(maxVal);
+        riskBadge.innerText = riskInfo.text;
+        riskBadge.className = `badge ${riskInfo.class}`;
 
-                if (stationMarker) {
-                    stationMarker.setPopupContent(`<b>จุดตรวจวัดหลัก: สนามกีฬาจังหวัดพะเยา</b><br>ค่าฝุ่นพยากรณ์วันนี้: <b>${todayVal} µg/m³</b>`).openPopup();
-                }
-
-                const labels = forecast.map(item => item.full_label);
-                renderChart(labels, predictedValues);
-                renderTable(forecast);
-
-                updateProgress(100, "ประมวลผลเรียบร้อย!");
-                await new Promise(r => setTimeout(r, 200));
-
-            } catch (err) {
-                console.error(err);
-                alert("เกิดข้อผิดพลาด: " + err.message);
-            } finally {
-                loader.style.display = 'none';
-                updateProgress(0, "");
-            }
+        // อัปเดต Marker บนแผนที่
+        if (stationMarker && rawValues.length > 0) {
+            stationMarker.setPopupContent(`<b>จุดตรวจวัดหลัก: สนามกีฬาจังหวัดพะเยา</b><br>ค่าฝุ่นพยากรณ์วันนี้: <b>${rawValues[0].toFixed(1)} µg/m³</b>`).openPopup();
         }
 
+        // สร้าง Labels วันที่ย้อนหลังและล่วงหน้า
+        const startDate = new Date(dateStr);
+        const labels = [];
+        const forecastData = [];
+
+        for (let i = 0; i < rawValues.length; i++) {
+            const currentDate = new Date(startDate);
+            currentDate.setDate(startDate.getDate() + i);
+            
+            const dateFormatted = currentDate.toISOString().split('T')[0];
+            const periodName = (i === 0) ? 'วันนี้' : `ล่วงหน้า ${i} วัน`;
+            const val = parseFloat(rawValues[i].toFixed(1));
+
+            labels.push(`${periodName} (${dateFormatted})`);
+            
+            forecastData.push({
+                period: periodName,
+                date: dateFormatted,
+                actual: 'N/A',
+                predicted: val
+            });
+        }
+
+        // วาดกราฟและตาราง
+        renderChart(labels, rawValues);
+        renderTable(forecastData);
+
+        updateProgress(100, "ประมวลผลเรียบร้อย!");
+        await new Promise(r => setTimeout(r, 200));
+
+    } catch (err) {
+        console.error("Fetch Error:", err);
+        alert("เกิดข้อผิดพลาด: " + err.message);
+    } finally {
+        loader.style.display = 'none';
+        updateProgress(0, "");
+    }
+}
         document.addEventListener("DOMContentLoaded", () => {
             initMap();
             document.getElementById('dateSelect').value = '2026-08-10';
