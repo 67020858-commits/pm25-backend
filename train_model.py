@@ -50,7 +50,6 @@ def fetch_weather(start_date, end_date):
             }
         )
 
-        # ยุบเป็นรายวัน (Daily)
         df_daily = (
             df.resample("D", on="datetime")
             .agg(
@@ -65,7 +64,6 @@ def fetch_weather(start_date, end_date):
             .reset_index()
         )
 
-        # แปลงทิศทางลมเป็น Sin/Cos Vector
         wind_rad = np.radians(df_daily["wind_dir"])
         df_daily["wind_sin"] = np.sin(wind_rad)
         df_daily["wind_cos"] = np.cos(wind_rad)
@@ -102,7 +100,7 @@ def fetch_hotspots(radius_km=100, days=10):
 # ==========================================
 # MAIN PIPELINE
 # ==========================================
-# 1. โหลดและรวมข้อมูล Excel ทุกปี
+# 1. โหลดและรวมข้อมูล Excel ทุกปี (ปรับปรุงป้องกัน KeyError)
 excel_files = sorted(glob.glob("สนามกีฬาจังหวัดพะเยา ปี *.xlsx"))
 df_list = []
 
@@ -110,12 +108,12 @@ print("กำลังโหลดและรวมข้อมูลจาก�
 for file in excel_files:
     df_temp = pd.read_excel(file, skiprows=3, header=None)
     df_temp = df_temp.dropna(how="all").iloc[:, :2]
-    df_temp.columns = ["Date", "PM2.5"]
+    df_temp.columns = ["Date", "PM2.5"]  # บังคับตั้งชื่อคอลัมน์โดยตรง
     df_list.append(df_temp)
 
 df_all = pd.concat(df_list, ignore_index=True)
-df_all["PM2.5"] = pd.to_numeric(df_all["PM2.5"], errors="coerce")
 df_all["Date"] = pd.to_datetime(df_all["Date"], errors="coerce")
+df_all["PM2.5"] = pd.to_numeric(df_all["PM2.5"], errors="coerce")
 df_all = df_all.dropna(subset=["Date", "PM2.5"]).sort_values("Date").reset_index(drop=True)
 
 # 2. ดึง Features สภาพอากาศ & จุดความร้อนมารวม (Merge)
@@ -131,9 +129,8 @@ df_merged = pd.merge(df_merged, df_hotspot, on="Date", how="left")
 
 # Clean ข้อมูลที่สูญหาย (Imputation)
 df_merged["hotspot_count"] = df_merged["hotspot_count"].fillna(0)
-df_merged = df_merged.ffill().bfill()  # เติมค่าอากาศที่ขาดหายด้วยค่าวันข้างเคียง
+df_merged = df_merged.ffill().bfill()
 
-# แยกข้อมูล Target (y) และ External Features (exog)
 feature_cols = ["temp", "humidity", "rain", "wind_speed", "wind_sin", "wind_cos", "hotspot_count"]
 data_y = df_merged["PM2.5"].values
 data_exog = df_merged[feature_cols].values
@@ -150,7 +147,7 @@ train_exog = data_exog[:train_size]
 test_data = data_y[train_size:]
 test_exog = data_exog[train_size:]
 
-# 5. เทรนโมเดล SARIMAX ร่วมกับ Exogenous Variables
+# 5. เทรนโมเดล SARIMAX
 print("กำลังเทรนโมเดล SARIMAX (Log Scale + Weather & Hotspots)...")
 model = SARIMAX(
     train_log,
@@ -162,7 +159,7 @@ model = SARIMAX(
 )
 sarima_result = model.fit(disp=False)
 
-# 6. ทำนายผลและแปลงค่ากลับด้วย np.expm1()
+# 6. ทำนายผลและแปลงค่ากลับ
 predictions_log = sarima_result.predict(
     start=len(train_log),
     end=len(train_log) + len(test_data) - 1,
@@ -183,7 +180,7 @@ print(f"RMSE : {rmse:.2f} ug/m3")
 print(f"R2   : {r2:.2f}")
 print("==========================================\n")
 
-# 8. เทรนโมเดลด้วยข้อมูลทั้งหมดแล้วบันทึกไฟล์ .pkl
+# 8. บันทึกไฟล์ .pkl
 print("กำลังสร้างและบันทึกโมเดลฉบับสมบูรณ์...")
 final_model = SARIMAX(
     data_log,
