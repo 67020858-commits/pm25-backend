@@ -27,10 +27,10 @@
         .summary-title { font-size: 0.85rem; color: #64748b; font-weight: 600; margin-bottom: 8px; }
         .summary-value { font-size: 1.6rem; font-weight: 800; color: #0f172a; }
         .badge { padding: 6px 16px; border-radius: 20px; color: white; font-size: 0.9rem; font-weight: 600; display: inline-block; }
-        .bg-good { background-color: #10b981; }
-        .bg-moderate { background-color: #eab308; color: #1e293b; }
-        .bg-orange { background-color: #f97316; }
-        .bg-danger { background-color: #ef4444; }
+        .bg-good { background-color: #00e400; color: #000; }
+        .bg-moderate { background-color: #ffff00; color: #1e293b; }
+        .bg-orange { background-color: #ff7e00; color: #fff; }
+        .bg-danger { background-color: #ff0000; color: #fff; }
 
         #map { height: 460px; width: 100%; border-radius: 8px; background-color: #1e293b; z-index: 1; }
         .chart-container { position: relative; height: 360px; width: 100%; margin-top: 10px; }
@@ -138,12 +138,13 @@
             return { text: 'มีผลกระทบ', class: 'bg-danger' };
         }
 
-        function getWAQIColor(aqi) {
-            if (aqi <= 50) return '#009966';
-            if (aqi <= 100) return '#ffde33';
-            if (aqi <= 150) return '#ff9933';
-            if (aqi <= 200) return '#cc0033';
-            return '#660099';
+        // ปรับแก้ฟังก์ชันคำนวณสีหมุดบนแผนที่ให้อิงตามเกณฑ์ PM2.5 มาตรฐานไทย (ตรงกับ Legend)
+        function getWAQIColor(val) {
+            const pm = Number(val);
+            if (pm <= 15) return '#00e400'; // ดีมาก (0-15)
+            if (pm <= 37) return '#ffff00'; // ปานกลาง (16-37)
+            if (pm <= 75) return '#ff7e00'; // เริ่มมีผลกระทบ (38-75)
+            return '#ff0000';              // มีผลกระทบ (>75)
         }
 
         async function fetchWAQIStations() {
@@ -158,7 +159,8 @@
 
                         const aqiVal = parseInt(station.aqi);
                         const bgColor = getWAQIColor(aqiVal);
-                        const textColor = (aqiVal > 50 && aqiVal <= 100) ? '#000' : '#fff';
+                        // สีข้อความ: สีดำสำหรับพื้นหลังสีเหลือง และสีขาวสำหรับสีอื่นๆ
+                        const textColor = (aqiVal > 15 && aqiVal <= 37) ? '#000000' : '#ffffff';
 
                         const customIcon = L.divIcon({
                             className: '',
@@ -172,7 +174,7 @@
                             .bindPopup(`
                                 <div style="font-family: sans-serif; min-width: 160px;">
                                     <h4 style="margin: 0 0 5px 0; font-size: 13px; color:#0f172a;">${station.station.name}</h4>
-                                    <p style="margin: 0; font-size: 12px;"><b>AQI เรียลไทม์:</b> <span style="color:${bgColor}; font-weight:bold;">${aqiVal}</span></p>
+                                    <p style="margin: 0; font-size: 12px;"><b>PM2.5 เรียลไทม์:</b> <span style="color:${bgColor}; font-weight:bold; background-color:${textColor === '#000000' ? '#333' : 'transparent'}; padding:1px 4px; border-radius:3px;">${aqiVal} µg/m³</span></p>
                                     <small style="color: #64748b; font-size: 10px;">ข้อมูลจากสถานีตรวจวัดภายนอก (WAQI)</small>
                                 </div>
                             `);
@@ -193,7 +195,6 @@
                 attribution: '&copy; OpenStreetMap | Data: WAQI'
             }).addTo(map);
 
-            // ปรับการดึง GEE Tile ป้องกันไม่ให้บล็อกการทำงานกรณีขึ้น 404
             try {
                 const response = await fetch(`${API_BASE_URL}/api/gee-tile`);
                 if (response.ok) {
@@ -297,82 +298,77 @@
         }
 
         async function fetchData() {
-    const dateStr = document.getElementById('dateSelect').value;
-    if (!dateStr) return;
+            const dateStr = document.getElementById('dateSelect').value;
+            if (!dateStr) return;
 
-    const loader = document.getElementById('loadingOverlay');
-    loader.style.display = 'flex';
+            const loader = document.getElementById('loadingOverlay');
+            loader.style.display = 'flex';
 
-    try {
-        updateProgress(40, "กำลังประมวลผลข้อมูล...");
-        
-        const targetUrl = `${API_BASE_URL}/predict?date=${dateStr}`;
-        const res = await fetch(targetUrl);
-        if (!res.ok) throw new Error('เกิดข้อผิดพลาดในการดึงข้อมูลจาก Server');
+            try {
+                updateProgress(40, "กำลังประมวลผลข้อมูล...");
+                
+                const targetUrl = `${API_BASE_URL}/predict?date=${dateStr}`;
+                const res = await fetch(targetUrl);
+                if (!res.ok) throw new Error('เกิดข้อผิดพลาดในการดึงข้อมูลจาก Server');
 
-        const data = await res.json();
-        updateProgress(80, "กำลังสร้างกราฟและสรุปตาราง...");
+                const data = await res.json();
+                updateProgress(80, "กำลังสร้างกราฟและสรุปตาราง...");
 
-        // ดึงอาร์เรย์ตัวเลข 7 วันจาก Backend
-        const rawValues = data.forecast_7_days || [];
-        
-        // คำนวณค่าเฉลี่ย และค่าสูงสุด
-        const sum = rawValues.reduce((a, b) => a + b, 0);
-        const avgVal = rawValues.length ? (sum / rawValues.length).toFixed(1) : 0;
-        const maxVal = rawValues.length ? Math.max(...rawValues).toFixed(1) : 0;
+                const rawValues = data.forecast_7_days || [];
+                
+                const sum = rawValues.reduce((a, b) => a + b, 0);
+                const avgVal = rawValues.length ? (sum / rawValues.length).toFixed(1) : 0;
+                const maxVal = rawValues.length ? Math.max(...rawValues).toFixed(1) : 0;
 
-        // สรุปการ์ดด้านบน
-        document.getElementById('statAvg').innerText = `${avgVal} µg/m³`;
-        document.getElementById('statMax').innerText = `${maxVal} µg/m³`;
-        
-        const riskBadge = document.getElementById('statRisk');
-        const riskInfo = getAQIBadge(maxVal);
-        riskBadge.innerText = riskInfo.text;
-        riskBadge.className = `badge ${riskInfo.class}`;
+                document.getElementById('statAvg').innerText = `${avgVal} µg/m³`;
+                document.getElementById('statMax').innerText = `${maxVal} µg/m³`;
+                
+                const riskBadge = document.getElementById('statRisk');
+                const riskInfo = getAQIBadge(maxVal);
+                riskBadge.innerText = riskInfo.text;
+                riskBadge.className = `badge ${riskInfo.class}`;
 
-        // อัปเดต Marker บนแผนที่
-        if (stationMarker && rawValues.length > 0) {
-            stationMarker.setPopupContent(`<b>จุดตรวจวัดหลัก: สนามกีฬาจังหวัดพะเยา</b><br>ค่าฝุ่นพยากรณ์วันนี้: <b>${rawValues[0].toFixed(1)} µg/m³</b>`).openPopup();
+                if (stationMarker && rawValues.length > 0) {
+                    stationMarker.setPopupContent(`<b>จุดตรวจวัดหลัก: สนามกีฬาจังหวัดพะเยา</b><br>ค่าฝุ่นพยากรณ์วันนี้: <b>${rawValues[0].toFixed(1)} µg/m³</b>`).openPopup();
+                }
+
+                const startDate = new Date(dateStr);
+                const labels = [];
+                const forecastData = [];
+
+                for (let i = 0; i < rawValues.length; i++) {
+                    const currentDate = new Date(startDate);
+                    currentDate.setDate(startDate.getDate() + i);
+                    
+                    const dateFormatted = currentDate.toISOString().split('T')[0];
+                    const periodName = (i === 0) ? 'วันนี้' : `ล่วงหน้า ${i} วัน`;
+                    const val = parseFloat(rawValues[i].toFixed(1));
+
+                    labels.push(`${periodName} (${dateFormatted})`);
+                    
+                    forecastData.push({
+                        period: periodName,
+                        date: dateFormatted,
+                        actual: 'N/A',
+                        predicted: val
+                    });
+                }
+
+                renderChart(labels, rawValues);
+                renderTable(forecastData);
+
+                updateProgress(100, "ประมวลผลเรียบร้อย!");
+                await new Promise(r => setTimeout(r, 200));
+
+            } catch (err) {
+                console.error("Fetch Error:", err);
+                alert("เกิดข้อผิดพลาด: " + err.message);
+            } finally {
+                loader.style.display = 'none';
+                updateProgress(0, "");
+            }
         }
 
-        // สร้าง Labels วันที่ย้อนหลังและล่วงหน้า
-        const startDate = new Date(dateStr);
-        const labels = [];
-        const forecastData = [];
-
-        for (let i = 0; i < rawValues.length; i++) {
-            const currentDate = new Date(startDate);
-            currentDate.setDate(startDate.getDate() + i);
-            
-            const dateFormatted = currentDate.toISOString().split('T')[0];
-            const periodName = (i === 0) ? 'วันนี้' : `ล่วงหน้า ${i} วัน`;
-            const val = parseFloat(rawValues[i].toFixed(1));
-
-            labels.push(`${periodName} (${dateFormatted})`);
-            
-            forecastData.push({
-                period: periodName,
-                date: dateFormatted,
-                actual: 'N/A',
-                predicted: val
-            });
-        }
-
-        // วาดกราฟและตาราง
-        renderChart(labels, rawValues);
-        renderTable(forecastData);
-
-        updateProgress(100, "ประมวลผลเรียบร้อย!");
-        await new Promise(r => setTimeout(r, 200));
-
-    } catch (err) {
-        console.error("Fetch Error:", err);
-        alert("เกิดข้อผิดพลาด: " + err.message);
-    } finally {
-        loader.style.display = 'none';
-        updateProgress(0, "");
-    }
-}
         document.addEventListener("DOMContentLoaded", () => {
             initMap();
             document.getElementById('dateSelect').value = '2026-08-10';
