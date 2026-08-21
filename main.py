@@ -4,6 +4,26 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware  # 1. import ตัวนี้
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI()
+
+# ตั้งค่า CORS ป้องกันไม่ให้เบราว์เซอร์บล็อกการดึงข้อมูล
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ป้องกัน Error 404 จากหน้าเว็บ
+@app.get("/api/gee-tile")
+def get_gee_tile():
+    return {"status": "success", "tile_url": ""}
+
+# (โค้ด /predict เดิมของคุณอยู่ตรงนี้)
 
 app = FastAPI()
 
