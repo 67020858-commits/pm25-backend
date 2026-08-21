@@ -2,6 +2,19 @@ import joblib
 import numpy as np
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware  # 1. import ตัวนี้
+
+app = FastAPI()
+
+# 2. เพิ่มการตั้งค่า CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app = FastAPI()
 

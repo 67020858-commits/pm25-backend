@@ -114,7 +114,8 @@
     </main>
 
     <script>
-        const API_BASE_URL = "https://pm2-5-j4k3.onrender.com";
+        // อัปเดต API_BASE_URL ให้ชี้ไปยัง Service บน Render ที่สร้างขึ้นใหม่
+        const API_BASE_URL = "https://pm25-api.onrender.com";
         const WAQI_TOKEN = '012861731ffb009f24137beadf87089b37fd31bf';
 
         let pmChart = null;
@@ -147,7 +148,6 @@
         }
 
         async function fetchWAQIStations() {
-            // ขยาย Bounds ครอบคลุมทั่วภาคเหนือ (เชียงใหม่ เชียงราย พะเยา ลำปาง น่าน แพร่)
             const bounds = '17.0,97.5,21.0,101.5';
             try {
                 const res = await fetch(`https://api.waqi.info/map/bounds/?token=${WAQI_TOKEN}&latlng=${bounds}`);
@@ -187,7 +187,6 @@
         async function initMap() {
             if (map !== null) return;
             
-            // ตั้งค่ามุมมองแผนที่เริ่มต้นครอบคลุมพะเยาและจังหวัดรอบข้าง
             map = L.map('map').setView([19.2200, 100.0500], 8);
 
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
