@@ -42,6 +42,10 @@
         .progress-box { width: 80%; max-width: 400px; text-align: center; }
         .progress-bar-container { width: 100%; height: 14px; background-color: #e2e8f0; border-radius: 20px; overflow: hidden; margin-top: 10px; }
         .progress-bar { width: 0%; height: 100%; background: #2563eb; transition: width 0.3s; }
+        
+        /* CSS สำหรับ Feature Importance */
+        .feature-bar-bg { background-color: #e2e8f0; border-radius: 6px; height: 10px; width: 100%; overflow: hidden; }
+        .feature-bar-fill { background-color: #2563eb; height: 100%; border-radius: 6px; }
     </style>
 </head>
 <body>
@@ -95,6 +99,15 @@
             </div>
         </section>
 
+        <!-- XAI Feature Importance Section -->
+        <section class="card">
+            <h2 class="header-title">🔍 ปัจจัยที่มีผลต่อการทำนายฝุ่น (XAI Feature Importance)</h2>
+            <p style="font-size: 0.85rem; color: #64748b; margin-top: 4px; margin-bottom: 16px;">สัดส่วนความสำคัญของปัจจัยแวดล้อมที่โมเดล XGBoost นำมาใช้คำนวณการพยากรณ์</p>
+            <div id="featureImportanceBox" style="display: flex; flex-direction: column; gap: 12px;">
+                <div style="color: #64748b; font-size: 0.9rem;">กำลังโหลดข้อมูลปัจจัย...</div>
+            </div>
+        </section>
+
         <section class="card">
             <h2 class="header-title">📋 สรุปตารางรายละเอียดข้อมูลรายวัน</h2>
             <table>
@@ -104,7 +117,7 @@
                         <th>วันที่</th>
                         <th>ค่าจริง (Excel)</th>
                         <th>ค่าทำนาย</th>
-                        <th>ผลต่าง (Diff)</th>
+                        <th>ช่วงความเชื่อมั่น (95% CI)</th>
                         <th>ระดับคุณภาพอากาศ</th>
                     </tr>
                 </thead>
@@ -116,6 +129,19 @@
     <script>
         const API_BASE_URL = "https://pm25-api.onrender.com";
         const WAQI_TOKEN = '012861731ffb009f24137beadf87089b37fd31bf';
+
+        // พจนานุกรมแปลชื่อตัวแปร ML เป็นภาษาไทย
+        const featureNamesTH = {
+            'pm25_lag_1': 'ค่าฝุ่นของเมื่อวาน (Lag 1 วัน)',
+            'pm25_lag_2': 'ค่าฝุ่นเมื่อ 2 วันก่อน (Lag 2 วัน)',
+            'pm25_lag_3': 'ค่าฝุ่นเมื่อ 3 วันก่อน (Lag 3 วัน)',
+            'pm25_roll_3': 'ค่าเฉลี่ยฝุ่นย้อนหลัง 3 วัน (Moving Avg 3d)',
+            'pm25_roll_7': 'ค่าเฉลี่ยฝุ่นย้อนหลัง 7 วัน (Moving Avg 7d)',
+            'temp': 'อุณหภูมิอากาศ',
+            'humidity': 'ความชื้นสัมพัทธ์',
+            'wind_speed': 'ความเร็วลม',
+            'hotspot': 'จำนวนจุดความร้อน (Hotspot)'
+        };
 
         let pmChart = null;
         let map = null;
@@ -138,13 +164,12 @@
             return { text: 'มีผลกระทบ', class: 'bg-danger' };
         }
 
-        // ปรับแก้ฟังก์ชันคำนวณสีหมุดบนแผนที่ให้อิงตามเกณฑ์ PM2.5 มาตรฐานไทย (ตรงกับ Legend)
         function getWAQIColor(val) {
             const pm = Number(val);
-            if (pm <= 15) return '#00e400'; // ดีมาก (0-15)
-            if (pm <= 37) return '#ffff00'; // ปานกลาง (16-37)
-            if (pm <= 75) return '#ff7e00'; // เริ่มมีผลกระทบ (38-75)
-            return '#ff0000';              // มีผลกระทบ (>75)
+            if (pm <= 15) return '#00e400';
+            if (pm <= 37) return '#ffff00';
+            if (pm <= 75) return '#ff7e00';
+            return '#ff0000';
         }
 
         async function fetchWAQIStations() {
@@ -159,7 +184,6 @@
 
                         const aqiVal = parseInt(station.aqi);
                         const bgColor = getWAQIColor(aqiVal);
-                        // สีข้อความ: สีดำสำหรับพื้นหลังสีเหลือง และสีขาวสำหรับสีอื่นๆ
                         const textColor = (aqiVal > 15 && aqiVal <= 37) ? '#000000' : '#ffffff';
 
                         const customIcon = L.divIcon({
@@ -276,12 +300,36 @@
             });
         }
 
+        // ฟังก์ชันเรนเดอร์ Feature Importance ที่แปลภาษาแล้ว
+        function renderFeatureImportance(importanceList) {
+            const container = document.getElementById('featureImportanceBox');
+            if (!importanceList || importanceList.length === 0) {
+                container.innerHTML = '<div style="color: #64748b;">ไม่มีข้อมูลปัจจัยการทำนาย</div>';
+                return;
+            }
+
+            container.innerHTML = importanceList.map(item => {
+                const displayName = featureNamesTH[item.factor] || item.factor;
+
+                return `
+                    <div style="background-color: #f8fafc; padding: 10px 14px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                        <div style="display: flex; justify-content: space-between; font-size: 0.95rem; font-weight: 600; margin-bottom: 6px;">
+                            <span>📌 ปัจจัย: ${displayName}</span>
+                            <span style="color: #2563eb; font-weight: 700;">${item.impact_percent}%</span>
+                        </div>
+                        <div class="feature-bar-bg">
+                            <div class="feature-bar-fill" style="width: ${item.impact_percent}%;"></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
         function renderTable(forecastData) {
             const tbody = document.getElementById('tableBody');
             tbody.innerHTML = '';
 
             forecastData.forEach(item => {
-                const diff = (item.actual !== 'N/A' && item.actual !== undefined) ? Math.abs(item.predicted - item.actual).toFixed(1) : '-';
                 const badge = getAQIBadge(item.predicted);
 
                 const tr = document.createElement('tr');
@@ -290,7 +338,7 @@
                     <td>${item.date}</td>
                     <td>${(item.actual !== 'N/A' && item.actual !== undefined) ? item.actual + ' µg/m³' : 'N/A'}</td>
                     <td><strong style="color: #2563eb;">${item.predicted} µg/m³</strong></td>
-                    <td>${diff}</td>
+                    <td><span style="color: #475569; font-weight: 600;">${item.ci_lower} - ${item.ci_upper}</span> <small style="color: #94a3b8;">(${item.ci_margin})</small></td>
                     <td><span class="badge ${badge.class}">${badge.text}</span></td>
                 `;
                 tbody.appendChild(tr);
@@ -307,14 +355,15 @@
             try {
                 updateProgress(40, "กำลังประมวลผลข้อมูล...");
                 
-                const targetUrl = `${API_BASE_URL}/predict?date=${dateStr}`;
+                const targetUrl = `${API_BASE_URL}/predict`;
                 const res = await fetch(targetUrl);
                 if (!res.ok) throw new Error('เกิดข้อผิดพลาดในการดึงข้อมูลจาก Server');
 
                 const data = await res.json();
                 updateProgress(80, "กำลังสร้างกราฟและสรุปตาราง...");
 
-                const rawValues = data.forecast_7_days || [];
+                const rawForecasts = data.forecast_7_days || [];
+                const rawValues = rawForecasts.map(f => (typeof f === 'object') ? f.pm25 : f);
                 
                 const sum = rawValues.reduce((a, b) => a + b, 0);
                 const avgVal = rawValues.length ? (sum / rawValues.length).toFixed(1) : 0;
@@ -334,28 +383,37 @@
 
                 const startDate = new Date(dateStr);
                 const labels = [];
-                const forecastData = [];
+                const forecastTableData = [];
 
-                for (let i = 0; i < rawValues.length; i++) {
+                for (let i = 0; i < rawForecasts.length; i++) {
+                    const item = rawForecasts[i];
                     const currentDate = new Date(startDate);
                     currentDate.setDate(startDate.getDate() + i);
                     
                     const dateFormatted = currentDate.toISOString().split('T')[0];
                     const periodName = (i === 0) ? 'วันนี้' : `ล่วงหน้า ${i} วัน`;
-                    const val = parseFloat(rawValues[i].toFixed(1));
+                    
+                    const val = (typeof item === 'object') ? item.pm25 : item;
+                    const ciLower = (typeof item === 'object' && item.confidence_interval) ? item.confidence_interval.lower : '-';
+                    const ciUpper = (typeof item === 'object' && item.confidence_interval) ? item.confidence_interval.upper : '-';
+                    const ciMargin = (typeof item === 'object' && item.confidence_interval) ? item.confidence_interval.margin : '±0';
 
                     labels.push(`${periodName} (${dateFormatted})`);
                     
-                    forecastData.push({
+                    forecastTableData.push({
                         period: periodName,
                         date: dateFormatted,
                         actual: 'N/A',
-                        predicted: val
+                        predicted: val,
+                        ci_lower: ciLower,
+                        ci_upper: ciUpper,
+                        ci_margin: ciMargin
                     });
                 }
 
                 renderChart(labels, rawValues);
-                renderTable(forecastData);
+                renderFeatureImportance(data.feature_importance_top5);
+                renderTable(forecastTableData);
 
                 updateProgress(100, "ประมวลผลเรียบร้อย!");
                 await new Promise(r => setTimeout(r, 200));
@@ -369,9 +427,13 @@
             }
         }
 
+        // ✅ แก้ไขส่วนนี้เรียบร้อยแล้ว: ตั้งค่าเป็นวันปัจจุบันตามเครื่องผู้ใช้โดยอัตโนมัติ
         document.addEventListener("DOMContentLoaded", () => {
             initMap();
-            document.getElementById('dateSelect').value = '2026-08-10';
+            
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('dateSelect').value = today;
+            
             fetchData();
         });
     </script>

@@ -1,0 +1,76 @@
+{
+  "metadata": {
+    "location": "Phayao Stadium",
+    "latitude": 19.166,
+    "longitude": 99.902,
+    "last_updated": "2026-08-22",
+    "current_pm25": 8.0,
+    "unit": "µg/m³",
+    "system_status": "Operational (Real-time Date Mode)"
+  },
+  "forecast": [
+    {
+      "horizon": "t+1",
+      "forecast_date": "2026-08-23",
+      "pm25_pred": 8.5,
+      "ci_lower_90": 6.099999904632568,
+      "ci_upper_90": 54.79999923706055,
+      "status_en": "Good",
+      "status_th": "ดีมาก"
+    },
+    {
+      "horizon": "t+2",
+      "forecast_date": "2026-08-24",
+      "pm25_pred": 8.699999809265137,
+      "ci_lower_90": 6.400000095367432,
+      "ci_upper_90": 54.599998474121094,
+      "status_en": "Good",
+      "status_th": "ดีมาก"
+    },
+    {
+      "horizon": "t+3",
+      "forecast_date": "2026-08-25",
+      "pm25_pred": 9.0,
+      "ci_lower_90": 6.5,
+      "ci_upper_90": 54.79999923706055,
+      "status_en": "Good",
+      "status_th": "ดีมาก"
+    },
+    {
+      "horizon": "t+4",
+      "forecast_date": "2026-08-26",
+      "pm25_pred": 9.5,
+      "ci_lower_90": 6.5,
+      "ci_upper_90": 54.79999923706055,
+      "status_en": "Good",
+      "status_th": "ดีมาก"
+    },
+    {
+      "horizon": "t+5",
+      "forecast_date": "2026-08-27",
+      "pm25_pred": 9.600000381469727,
+      "ci_lower_90": 6.5,
+      "ci_upper_90": 55.099998474121094,
+      "status_en": "Good",
+      "status_th": "ดีมาก"
+    },
+    {
+      "horizon": "t+6",
+      "forecast_date": "2026-08-28",
+      "pm25_pred": 9.899999618530273,
+      "ci_lower_90": 6.400000095367432,
+      "ci_upper_90": 55.0,
+      "status_en": "Good",
+      "status_th": "ดีมาก"
+    },
+    {
+      "horizon": "t+7",
+      "forecast_date": "2026-08-29",
+      "pm25_pred": 10.100000381469727,
+      "ci_lower_90": 6.400000095367432,
+      "ci_upper_90": 55.0,
+      "status_en": "Good",
+      "status_th": "ดีมาก"
+    }
+  ]
+}
