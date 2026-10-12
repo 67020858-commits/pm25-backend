@@ -297,6 +297,77 @@ async def predict_pm25(
     else:
         input_vector = [28.5, 65.0, 0.0, 3.2, 0.5, 0.86, 1.0] + [25.0]*7 + [26.0, 27.5]
 
+    # เตรียม DMatrix ทั้งแบบชื่อฟีเจอร์จริง และแบบ array ทั่วไป
+    input_df = pd.DataFrame([input_vector], columns=FEATURE_NAMES)
+    dmatrix_df = xgb.DMatrix(input_df)
+    dmatrix_f_names = xgb.DMatrix(np.array([input_vector]), feature_names=[f"f{i}" for i in range(len(FEATURE_NAMES))])
+    dmatrix_raw = xgb.DMatrix(np.array([input_vector]))
+
+    # 2. คำนวณ Standard Deviation ย้อนหลัง 7 วัน สำหรับ Dynamic CI
+    recent_std = 1.0
+    if df is not None and len(df) >= 7:
+        recent_std = float(df["pm25"].tail(7).std())
+        if np.isnan(recent_std) or recent_std == 0:
+            recent_std = 1.0
+
+    forecast_results = []
+    rmse_metrics = app_state.get("rmse_metrics", DEFAULT_RMSE_BY_DAY)
+
+    # 3. ลูปทำนาย 1 ถึง 7 วัน
+    for day in range(1, 8):
+        booster = models.get(day)
+        rmse_val = float(rmse_metrics.get(f"day_{day}", DEFAULT_RMSE_BY_DAY.get(f"day_{day}", 5.0)))
+
+        pred_val = 25.0
+        if booster:
+            # ลองพยากรณ์ทีละรูปแบบกรณีชื่อฟีเจอร์ไม่ตรงกัน
+            try:
+                pred_val = float(booster.predict(dmatrix_df)[0])
+            except Exception:
+                try:
+                    pred_val = float(booster.predict(dmatrix_f_names)[0])
+                except Exception:
+                    try:
+                        pred_val = float(booster.predict(dmatrix_raw)[0])
+                    except Exception as e:
+                        logger.error(f"เกิดข้อผิดพลาดขณะทำนาย Day {day}: {e}")
+
+        # คำนวณ Margin of Error
+        if use_dynamic_ci:
+            margin = 1.96 * rmse_val * (1.0 + 0.1 * (recent_std / 10.0))
+        else:
+            margin = 1.96 * rmse_val
+
+        lower_bound = max(0.0, round(pred_val - margin, 2))
+        upper_bound = round(pred_val + margin, 2)
+
+        forecast_results.append(DailyForecastItem(
+            day=day,
+            pm25=round(pred_val, 2),
+            confidence_interval=ConfidenceIntervalItem(
+                lower=lower_bound,
+                upper=upper_bound,
+                margin=f"±{round(margin, 1)}"
+            ),
+            rmse=round(rmse_val, 2)
+        ))
+
+    return PredictionResponse(
+        status="success",
+        location=STADIUM_LOCATION,
+        model_type="Direct Multi-Horizon XGBoost (7 Independent Models)",
+        ci_type="dynamic" if use_dynamic_ci else "static",
+        feature_importance_top5=app_state.get("top5_importance", []),
+        forecast_7_days=forecast_results
+    )
+
+    # 1. ดึง Vector ฟีเจอร์ล่าสุด 16 ตัว
+    if df is not None and len(df) > 0:
+        latest_row = df.iloc[-1]
+        input_vector = [float(latest_row[f]) for f in FEATURE_NAMES if f in latest_row]
+    else:
+        input_vector = [28.5, 65.0, 0.0, 3.2, 0.5, 0.86, 1.0] + [25.0]*7 + [26.0, 27.5]
+
     dmatrix = xgb.DMatrix(
         np.array([input_vector]), 
         feature_names=[f"f{i}" for i in range(len(FEATURE_NAMES))]
