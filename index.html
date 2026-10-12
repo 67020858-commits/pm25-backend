@@ -64,11 +64,11 @@
             <div class="summary-grid">
                 <div class="summary-card">
                     <div class="summary-title">ค่าเฉลี่ยภาพรวม 8 วัน</div>
-                    <div class="summary-value" id="statAvg">- µg/m³</div>
+                    <div class="summary-value" id="statAvg">µg/m³</div>
                 </div>
                 <div class="summary-card">
                     <div class="summary-title">ค่าสูงสุดใน 8 วันนี้</div>
-                    <div class="summary-value" id="statMax">- µg/m³</div>
+                    <div class="summary-value" id="statMax">µg/m³</div>
                 </div>
                 <div class="summary-card">
                     <div class="summary-title">ประเมินระดับความเสี่ยง</div>
@@ -127,21 +127,28 @@
     </main>
 
     <script>
-        const API_BASE_URL = "https://pm25-api.onrender.com";
+        const API_BASE_URL = "http://localhost:8000";
         const WAQI_TOKEN = '012861731ffb009f24137beadf87089b37fd31bf';
 
         // พจนานุกรมแปลชื่อตัวแปร ML เป็นภาษาไทย
-        const featureNamesTH = {
-            'pm25_lag_1': 'ค่าฝุ่นของเมื่อวาน (Lag 1 วัน)',
-            'pm25_lag_2': 'ค่าฝุ่นเมื่อ 2 วันก่อน (Lag 2 วัน)',
-            'pm25_lag_3': 'ค่าฝุ่นเมื่อ 3 วันก่อน (Lag 3 วัน)',
-            'pm25_roll_3': 'ค่าเฉลี่ยฝุ่นย้อนหลัง 3 วัน (Moving Avg 3d)',
-            'pm25_roll_7': 'ค่าเฉลี่ยฝุ่นย้อนหลัง 7 วัน (Moving Avg 7d)',
-            'temp': 'อุณหภูมิอากาศ',
-            'humidity': 'ความชื้นสัมพัทธ์',
-            'wind_speed': 'ความเร็วลม',
-            'hotspot': 'จำนวนจุดความร้อน (Hotspot)'
-        };
+       const featureNamesTH = {
+    'pm25_lag_1': 'ค่าฝุ่นเมื่อวาน (Lag 1 วัน)',
+    'pm25_lag_2': 'ค่าฝุ่นเมื่อ 2 วันก่อน (Lag 2 วัน)',
+    'pm25_lag_3': 'ค่าฝุ่นเมื่อ 3 วันก่อน (Lag 3 วัน)',
+    'pm25_lag_4': 'ค่าฝุ่นเมื่อ 4 วันก่อน (Lag 4 วัน)',
+    'pm25_lag_5': 'ค่าฝุ่นเมื่อ 5 วันก่อน (Lag 5 วัน)',
+    'pm25_lag_6': 'ค่าฝุ่นเมื่อ 6 วันก่อน (Lag 6 วัน)',
+    'pm25_lag_7': 'ค่าฝุ่นเมื่อ 7 วันก่อน (Lag 7 วัน)',
+    'pm25_roll_3': 'ค่าเฉลี่ยฝุ่นย้อนหลัง 3 วัน (Moving Avg 3d)',
+    'pm25_roll_7': 'ค่าเฉลี่ยฝุ่นย้อนหลัง 7 วัน (Moving Avg 7d)',
+    'temp': 'อุณหภูมิอากาศ',
+    'humidity': 'ความชื้นสัมพัทธ์',
+    'rain': 'ปริมาณฝน',
+    'wind_speed': 'ความเร็วลม',
+    'wind_sin': 'ทิศทางลม (Sin Component)',
+    'wind_cos': 'ทิศทางลม (Cos Component)',
+    'hotspot_count': 'จำนวนจุดความร้อน (Hotspot)'
+};
 
         let pmChart = null;
         let map = null;

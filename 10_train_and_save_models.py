@@ -1,40 +1,54 @@
 import os
+import json
 import numpy as np
 import pandas as pd
 from xgboost import XGBRegressor
 
-# สร้างโฟลเดอร์สำหรับเก็บไฟล์โมเดล
 os.makedirs('models', exist_ok=True)
+print("⏳ กำลังเตรียมข้อมูล Multi-ring และเทรนโมเดลฉบับสมบูรณ์ที่สุด...")
 
-print("⏳ กำลังเตรียมข้อมูลและเทรนโมเดลฉบับสมบูรณ์...")
+# 1. โหลดข้อมูล PM2.5 และ GEE Advanced Features (Multi-ring)
+df_pm25 = pd.read_csv('merged_pm25_gee_data.csv')[['date', 'pm25']]
+df_gee = pd.read_csv('gee_advanced_features.csv')
 
-# 1. โหลดข้อมูลรวมล่าสุด
-df = pd.read_csv('merged_pm25_gee_data.csv')
-df['date'] = pd.to_datetime(df['date'])
-df = df.sort_values('date').reset_index(drop=True)
+df_pm25['date'] = pd.to_datetime(df_pm25['date'])
+df_gee['date'] = pd.to_datetime(df_gee['date'])
 
-# 2. Feature Engineering Pipeline (R² = 0.733)
+df = pd.merge(df_pm25, df_gee, on='date', how='inner').sort_values('date').reset_index(drop=True)
+
+# 2. Feature Engineering ขั้นสูง (Multi-ring Buffers + Wind Dynamics)
 df['wind_speed'] = np.sqrt(df['u_wind']**2 + df['v_wind']**2)
+df['wind_dir_rad'] = np.arctan2(df['v_wind'], df['u_wind'])
+df['wind_dir_sin'] = np.sin(df['wind_dir_rad'])
+df['wind_dir_cos'] = np.cos(df['wind_dir_rad'])
 df['dewpoint_spread'] = df['temp_k'] - df['dewpoint_k']
 
 day_of_year = df['date'].dt.dayofyear
 df['sin_day'] = np.sin(2 * np.pi * day_of_year / 365.25)
 df['cos_day'] = np.cos(2 * np.pi * day_of_year / 365.25)
-df['month'] = df['date'].dt.month
 
-df['hotspot_wind_inter'] = df['hotspot_count_50km'] * df['wind_speed']
+# Multi-ring Hotspots Calculation
+df['hotspot_outer_100k'] = df['hotspot_100km'] - df['hotspot_50km']
+df['hotspot_outer_200k'] = df['hotspot_200km'] - df['hotspot_100km']
+
+# Interactions
+df['hotspot_wind_50k_inter'] = df['hotspot_50km'] * df['wind_speed']
+df['hotspot_wind_200k_inter'] = df['hotspot_200km'] * df['wind_speed']
 df['ventilation_index'] = df['wind_speed'] * df['temp_k']
-df['hotspot_ema_3'] = df['hotspot_count_50km'].ewm(span=3, adjust=False).mean()
 
 feature_cols = [
-    'sin_day', 'cos_day', 'month', 'dewpoint_spread', 'temp_k', 
-    'wind_speed', 'precip_m', 'hotspot_wind_inter', 'ventilation_index', 'hotspot_ema_3'
+    'sin_day', 'cos_day', 'dewpoint_spread', 'temp_k', 'wind_speed', 
+    'wind_dir_sin', 'wind_dir_cos', 'precip_m',
+    'hotspot_50km', 'hotspot_outer_100k', 'hotspot_outer_200k',
+    'hotspot_wind_50k_inter', 'hotspot_wind_200k_inter', 'ventilation_index'
 ]
 
+# Lags & Rolling Features
 for lag in [1, 2, 3, 7]:
     df[f'pm25_lag_{lag}'] = df['pm25'].shift(lag)
-    df[f'hotspot_lag_{lag}'] = df['hotspot_count_50km'].shift(lag)
-    feature_cols.extend([f'pm25_lag_{lag}', f'hotspot_lag_{lag}'])
+    df[f'hs_50k_lag_{lag}'] = df['hotspot_50km'].shift(lag)
+    df[f'hs_200k_lag_{lag}'] = df['hotspot_200km'].shift(lag)
+    feature_cols.extend([f'pm25_lag_{lag}', f'hs_50k_lag_{lag}', f'hs_200k_lag_{lag}'])
 
 df['pm25_roll_3'] = df['pm25'].shift(1).rolling(3).mean()
 df['pm25_roll_7'] = df['pm25'].shift(1).rolling(7).mean()
@@ -42,17 +56,17 @@ feature_cols.extend(['pm25_roll_3', 'pm25_roll_7'])
 
 df_model = df.dropna(subset=feature_cols + ['pm25']).reset_index(drop=True)
 
-# 3. Best Hyperparameters จาก Optuna
+# 3. Best Parameters
 best_params = {
     'objective': 'reg:quantileerror',
     'random_state': 42,
-    'n_estimators': 238,
-    'max_depth': 3,
-    'learning_rate': 0.02538,
-    'subsample': 0.67587,
-    'colsample_bytree': 0.72022,
-    'reg_alpha': 0.00115,
-    'reg_lambda': 0.01617
+    'n_estimators': 250,
+    'max_depth': 4,
+    'learning_rate': 0.02,
+    'subsample': 0.7,
+    'colsample_bytree': 0.7,
+    'reg_alpha': 0.01,
+    'reg_lambda': 0.1
 }
 
 quantiles = {'low': 0.05, 'mid': 0.50, 'high': 0.95}
@@ -69,15 +83,12 @@ for h in range(1, 8):
         model = XGBRegressor(**best_params, quantile_alpha=q_val)
         model.fit(X, y)
         
-        # เซฟเป็นไฟล์ JSON ของ XGBoost
         model_filename = f"models/xgb_t{h}_{q_name}.json"
         model.save_model(model_filename)
 
-# บันทึกรายชื่อ Feature Sequence เก็บไว้ด้วยเพื่อป้องกันสลับลำดับคอลัมน์ตอนนำไปใช้
-import json
 with open('models/feature_names.json', 'w') as f:
     json.dump(feature_cols, f)
 
-print("\n" + "="*50)
-print("✅ บันทึกโมเดลทั้งหมด 21 ตัวลงโฟลเดอร์ 'models/' เรียบร้อยแล้ว!")
-print("="*50)
+print("\n" + "="*60)
+print("✅ บันทึกโมเดลขั้นสูง Multi-ring ทั้งหมด 21 ตัวลงโฟลเดอร์ 'models/' เรียบร้อยแล้ว!")
+print("="*60)

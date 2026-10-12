@@ -1,0 +1,21 @@
+﻿name: pm25-forecast
+
+services:
+  pm25-api:
+    build: .
+    container_name: pm25_forecast_service
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./สนามกีฬาจังหวัดพะเยา_processed.parquet:/app/สนามกีฬาจังหวัดพะเยา_processed.parquet
+      - ./model_rmse_metrics.json:/app/model_rmse_metrics.json
+      - ./xgboost_day_1.json:/app/xgboost_day_1.json
+      - ./xgboost_day_2.json:/app/xgboost_day_2.json
+      - ./xgboost_day_3.json:/app/xgboost_day_3.json
+      - ./xgboost_day_4.json:/app/xgboost_day_4.json
+      - ./xgboost_day_5.json:/app/xgboost_day_5.json
+      - ./xgboost_day_6.json:/app/xgboost_day_6.json
+      - ./xgboost_day_7.json:/app/xgboost_day_7.json
+    environment:
+      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
+    restart: always

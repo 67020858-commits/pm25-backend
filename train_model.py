@@ -6,6 +6,32 @@ import pandas as pd
 import requests
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from statsmodels.tsa.statespace.sarimax import SARIMAX
+import torch
+import torch.nn as nn
+from data_pipeline import prepare_dataset  # ดึงฟังค์ชั่นเตรียมข้อมูลมาใช้
+
+# 1. โค้ดโครงสร้างคลาส LSTM Regressor
+class PM25LSTMRegressor(nn.Module):
+    def __init__(self, input_size, hidden_size=64, num_layers=2, output_size=7):
+        super(PM25LSTMRegressor, self).__init__()
+        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, batch_first=True, dropout=0.2)
+        self.fc = nn.Sequential(
+            nn.Linear(hidden_size, 32),
+            nn.ReLU(),
+            nn.Linear(32, output_size)
+        )
+        
+    def forward(self, x):
+        lstm_out, _ = self.lstm(x)
+        last_hidden = lstm_out[:, -1, :]
+        return self.fc(last_hidden)
+
+# 2. สคริปต์การโหลดข้อมูลและเริ่มเทรนโมเดล
+if __name__ == "__main__":
+    print("กำลังเริ่มเทรนโมเดล...")
+    # โหลดและเทรนโมเดล...
+    # torch.save(model.state_dict(), 'lstm_pm25_model.pth')
+    print("เทรนสำเร็จและบันทึกโมเดลเรียบร้อย!")
 
 # ==========================================
 # CONSTANTS & CONFIGS
