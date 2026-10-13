@@ -1,0 +1,41 @@
+name: Monthly Model Retraining
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'  # รันทุกวันที่ 1 ของเดือน เวลา 00:00 UTC (07:00 น. เวลาไทย)
+  workflow_dispatch:      # เปิดให้กดปุ่มรันด้วยตัวเองบนเว็บ GitHub ได้
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    
+    # อนุญาตให้ Workflow นี้ push โค้ดลง repository ได้
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pandas pyarrow xgboost scikit-learn numpy
+
+    - name: Run Retrain Script
+      run: python retrain_model.py
+
+    - name: Commit and Push new models
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        # เพิ่มไฟล์โมเดลที่ถูกอัปเดต
+        git add xgboost_day_*.json rmse_metrics.json
+        
+        # Commit จะทำงานก็ต่อเมื่อมีการเปลี่ยนแปลงเท่านั้น
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-retrain models with latest data" && git push)
