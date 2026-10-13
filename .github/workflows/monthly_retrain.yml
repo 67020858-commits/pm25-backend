@@ -34,8 +34,8 @@ jobs:
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        # เพิ่มไฟล์โมเดลที่ถูกอัปเดต
-        git add xgboost_day_*.json rmse_metrics.json
         
-        # Commit จะทำงานก็ต่อเมื่อมีการเปลี่ยนแปลงเท่านั้น
+        # เติม || true เพื่อให้ผ่านไปได้แม้ไม่เจอไฟล์
+        git add xgboost_day_*.json rmse_metrics.json || true
+        
         git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-retrain models with latest data" && git push)
